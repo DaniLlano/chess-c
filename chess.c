@@ -17,6 +17,38 @@ typedef enum {
 #define TYPE_MASK  0x07   // 0b00000111
 #define COLOR_MASK 0x08   // 0b00001000
 
+// castling rights flags (combinable with |)
+#define CASTLE_WK  0x01   // white kingside
+#define CASTLE_WQ  0x02   // white queenside
+#define CASTLE_BK  0x04   // black kingside
+#define CASTLE_BQ  0x08   // black queenside
+
+void init_board(void);
+void init_game(void);
+void print_board(void);
+void print_state(void);
+char piece_char(int piece);
+
+typedef struct {
+    int side_to_move;     // WHITE (0) or BLACK (8)
+    int castle_rights;    // bitmask: CASTLE_WK | CASTLE_WQ | CASTLE_BK | CASTLE_BQ
+    int en_passant;       // target square idx, or -1 if none
+    int halfmove_clock;
+    int fullmove_number;
+} GameState;
+
+GameState state;
+
+void init_game(void) {
+    init_board();
+
+    state.side_to_move    = 0;
+    state.castle_rights   = CASTLE_WK | CASTLE_WQ | CASTLE_BK | CASTLE_BQ;
+    state.en_passant      = -1;
+    state.halfmove_clock  = 0;
+    state.fullmove_number = 1;
+}
+
 // board[0] = a8 (black's back rank, left), board[63] = h1
 int board[64];
 
@@ -84,8 +116,28 @@ void print_board(void) {
     }
 }
 
+void print_state(void) {
+    printf("side to move : %s\n", state.side_to_move == 0 ? "white" : "black");
+
+    printf("castle rights: %c%c%c%c\n",
+        (state.castle_rights & CASTLE_WK) ? 'K' : '-',
+        (state.castle_rights & CASTLE_WQ) ? 'Q' : '-',
+        (state.castle_rights & CASTLE_BK) ? 'k' : '-',
+        (state.castle_rights & CASTLE_BQ) ? 'q' : '-'
+    );
+
+    if (state.en_passant == -1)
+        printf("en passant   : -\n");
+    else
+        printf("en passant   : %d\n", state.en_passant);
+
+    printf("halfmove     : %d\n", state.halfmove_clock);
+    printf("fullmove     : %d\n", state.fullmove_number);
+}
+
 int main(void) {
-    init_board();
+    init_game();
     print_board();
+    print_state();
     return 0;
 }
