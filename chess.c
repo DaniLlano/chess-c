@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 // piece encoding: bits 0-2 = type, bit 3 = color
 typedef enum {
@@ -23,11 +24,27 @@ typedef enum {
 #define CASTLE_BK  0x04   // black kingside
 #define CASTLE_BQ  0x08   // black queenside
 
+// move flags
+#define FLAG_NONE      0x00
+#define FLAG_ENPASSANT 0x01
+#define FLAG_CASTLE    0x02
+#define FLAG_PROMOTE   0x04
+
+typedef struct {
+    int from;
+    int to;
+    int flags;
+} Move;
+
+#define MAX_MOVES 256
+
 void init_board(void);
 void init_game(void);
 void print_board(void);
 void print_state(void);
 char piece_char(int piece);
+void generate_moves(void);
+void print_move_count(void);
 
 typedef struct {
     int side_to_move;     // WHITE (0) or BLACK (8)
@@ -38,6 +55,9 @@ typedef struct {
 } GameState;
 
 GameState state;
+
+Move moves[MAX_MOVES];
+int  move_count = 0;
 
 void init_game(void) {
     init_board();
@@ -135,9 +155,130 @@ void print_state(void) {
     printf("fullmove     : %d\n", state.fullmove_number);
 }
 
+static int is_enemy(int piece, int side) {
+    if (piece == EMPTY) return 0;
+    return (piece & COLOR_MASK) != side;
+}
+
+static int is_empty_sq(int sq) {
+    return board[sq] == EMPTY;
+}
+
+static void push_move(int from, int to, int flags) {
+    if (move_count >= MAX_MOVES) return;
+    moves[move_count].from  = from;
+    moves[move_count].to    = to;
+    moves[move_count].flags = flags;
+    move_count++;
+}
+
+void generate_moves(void) {
+    move_count = 0;
+    int side = state.side_to_move;
+
+    int rook_dirs[]   = { -8, -1,  1,  8 };
+    int bishop_dirs[] = { -9, -7,  7,  9 };
+
+    for (int sq = 0; sq < 64; sq++) {
+        int piece = board[sq];
+        if (piece == EMPTY) continue;
+        if ((piece & COLOR_MASK) != side) continue;
+
+        int type = piece & TYPE_MASK;
+        int file = sq % 8;
+
+        if (type == PAWN) {
+            int dir   = (side == 0) ? -8 : 8;
+            int start = (side == 0) ?  6 : 1;
+            int rank  = sq / 8;
+
+            int fwd = sq + dir;
+            if (fwd >= 0 && fwd < 64 && is_empty_sq(fwd)) {
+                push_move(sq, fwd, FLAG_NONE);
+                int fwd2 = sq + dir * 2;
+                if (rank == start && is_empty_sq(fwd2))
+                    push_move(sq, fwd2, FLAG_NONE);
+            }
+
+            int cap_files[] = { file - 1, file + 1 };
+            int cap_dirs[]  = { dir - 1,  dir + 1  };
+            for (int i = 0; i < 2; i++) {
+                if (cap_files[i] < 0 || cap_files[i] > 7) continue;
+                int to = sq + cap_dirs[i];
+                if (to < 0 || to >= 64) continue;
+                if (is_enemy(board[to], side))
+                    push_move(sq, to, FLAG_NONE);
+                if (to == state.en_passant)
+                    push_move(sq, to, FLAG_ENPASSANT);
+            }
+        }
+
+        else if (type == KNIGHT) {
+            int deltas[]     = { -17, -15, -10, -6,  6, 10, 15, 17 };
+            int file_diffs[] = {  -1,   1,  -2,  2, -2,  2, -1,  1 };
+            for (int i = 0; i < 8; i++) {
+                int to = sq + deltas[i];
+                if (to < 0 || to >= 64) continue;
+                if (file + file_diffs[i] < 0 || file + file_diffs[i] > 7) continue;
+                if (is_empty_sq(to) || is_enemy(board[to], side))
+                    push_move(sq, to, FLAG_NONE);
+            }
+        }
+
+        else if (type == ROOK || type == BISHOP || type == QUEEN) {
+            int *dirs[2];
+            int  ndirs[2] = { 0, 0 };
+
+            if (type == ROOK)   { dirs[0] = rook_dirs;   ndirs[0] = 4; }
+            if (type == BISHOP) { dirs[0] = bishop_dirs; ndirs[0] = 4; }
+            if (type == QUEEN)  {
+                dirs[0] = rook_dirs;   ndirs[0] = 4;
+                dirs[1] = bishop_dirs; ndirs[1] = 4;
+            }
+
+            for (int s = 0; s < 2; s++) {
+                for (int d = 0; d < ndirs[s]; d++) {
+                    int to   = sq + dirs[s][d];
+                    int prev = sq;
+                    while (to >= 0 && to < 64) {
+                        if (abs((to % 8) - (prev % 8)) > 1) break;
+                        if (is_empty_sq(to)) {
+                            push_move(sq, to, FLAG_NONE);
+                        } else {
+                            if (is_enemy(board[to], side))
+                                push_move(sq, to, FLAG_NONE);
+                            break;
+                        }
+                        prev = to;
+                        to  += dirs[s][d];
+                    }
+                }
+            }
+        }
+
+        else if (type == KING) {
+            int deltas[]     = { -9, -8, -7, -1,  1,  7,  8,  9 };
+            int file_diffs[] = { -1,  0,  1, -1,  1, -1,  0,  1 };
+            for (int i = 0; i < 8; i++) {
+                int to = sq + deltas[i];
+                if (to < 0 || to >= 64) continue;
+                if (file + file_diffs[i] < 0 || file + file_diffs[i] > 7) continue;
+                if (is_empty_sq(to) || is_enemy(board[to], side))
+                    push_move(sq, to, FLAG_NONE);
+            }
+        }
+    }
+}
+
+void print_move_count(void) {
+    generate_moves();
+    printf("legal moves  : %d\n", move_count);
+}
+
 int main(void) {
     init_game();
     print_board();
     print_state();
+    print_move_count();
     return 0;
 }
